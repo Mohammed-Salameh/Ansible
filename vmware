@@ -1,0 +1,96 @@
+vmware-inventory.ini
+
+[localhost]
+mohammad-salameh ansible_connection=local
+[mohammad-salameh]
+mohammad-salameh ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+vmware-playbook.yml
+
+---
+- name: Create Linux VMs in VMware Workstation
+  hosts: localhost
+  gather_facts: no
+  vars:
+    vms:
+      - name: new-vm
+        username: root
+        password: P@ssw0rd
+        guest_id: 1
+    datacenter: ha-datacenter
+    folder: /vm
+  tasks:
+    - name: Create a new virtual machine
+      vmware_guest:
+        name: "{{ item.name }}"
+        username: "{{ item.username }}"
+        password: "{{ item.password }}"
+        guest_id: "{{ item.guest_id }}"
+      with_items: "{{ vms }}"
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+    - name: Power on VM
+      community.vmware.vmware_guest_powerstate:
+        hostname: localhost
+        username: "{{ item.username }}"
+        password: "{{ item.password }}"
+        validate_certs: False
+        datacenter: "{{ datacenter }}"
+        name: "{{ item.name }}"
+        state: poweredon
+      loop: "{{ vms }}"
+
+    - name: Wait for VM to start
+      pause:
+        seconds: 10
+
+    - name: Assign DHCP IP address
+      community.vmware.vmware_vm_shell:
+        hostname: localhost
+        username: "{{ item.username }}"
+        password: "{{ item.password }}"
+        validate_certs: False
+        datacenter: "{{ datacenter }}"
+        vm_id: "{{ item.name }}"
+        vm_username: "{{ item.username }}"
+        vm_password: "{{ item.password }}"
+        vm_shell: |
+          sudo dhclient -v
+      loop: "{{ vms }}"
+
+    - name: Enable SSH
+      community.vmware.vmware_vm_shell:
+        hostname: localhost
+        username: "{{ item.username }}"
+        password: "{{ item.password }}"
+        validate_certs: False
+        datacenter: "{{ datacenter }}"
+        vm_id: "{{ item.name }}"
+        vm_username: "{{ item.username }}"
+        vm_password: "{{ item.password }}"
+        vm_shell: |
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
+      loop: "{{ vms }}"
+
+vmware-requirements.yml
+
+---
+collections:
+  - name: community.vmware
+    version: 1.13.0
+
+vmware-variables.yml
+
+---
+vms:
+  - name: new-vm
+    username: root
+    password: P@ssw0rd
+    network: vmnet1
+    guest_id: 1
+    memory_mb: 2048
+    num_cpus: 2
+    iso_path: /run/media/mohammad/78CAAC7F372A49FB/files/run/media/mohammadsalameh/39CE28277F62B2AA/ISO/AlmaLinux-8.7-x86_64-minimal.iso  # Update with the path to your ISO file
+datacenter: ha-datacenter
+folder: /vm
