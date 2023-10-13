@@ -1,0 +1,101 @@
+openvas-inventory.ini
+
+[openvas_devices]
+openvas ansible_host=172.16.1.205 ansible_connection=ssh
+
+[openvas_devices:vars]
+ansible_user=root
+ansible_password=P@ssw0rd
+ansible_become=yes
+
+openvas-requirements.yml
+
+---
+collections:
+  - community.general
+  - robertdebock.openvas
+  - outsideopen.ossim_openvas_cert_renewal
+
+openvas-variables.yml
+
+---
+# Variables for deploying OpenVAS with Docker Compose
+
+
+# Directory where you want to store your docker-compose file
+deploy_directory: /path/to/deploy/directory
+
+# Optional: The SMTP Relay Host for OpenVAS configuration
+smtp_relay_host: smtp.yourdomain.com
+
+
+openvas-playbook.yml
+
+- name: Deploy OpenVAS in Docker Swarm
+  hosts: openvas
+  become: true
+  gather_facts: no
+  collections:
+    - community.vmware
+  vars_files:
+    - vmware-variables.yml
+  tasks:
+
+    - name: Ensure pip is installed
+      ansible.builtin.package:
+        name: python3-pip
+        state: present
+
+    - name: Install required python libraries
+      ansible.builtin.pip:
+        name:
+          - jsondiff
+          - pyyaml
+        state: present
+
+    - block:
+        - name: Create a swarm-scoped network
+          shell: docker network create -d overlay openvas-net
+      rescue:
+        - name: Network already exists
+          debug:
+            msg: "Network openvas-net already exists, continuing..."
+
+    - name: Deploy OpenVAS
+      community.docker.docker_stack:
+        name: openvas
+        state: present
+        compose:
+          - version: "3.7"
+            services:
+              openvas:
+                image: "securecompliance/openvas"
+                ports:
+                  - "9392:9392"
+                environment:
+                  - "RELAYHOST=openvas.mohammad.com"
+                networks:
+                  - openvas-net
+                deploy:
+                  replicas: 1
+                  restart_policy:
+                    condition: on-failure
+            networks:
+              openvas-net:
+                external: true
+
+    # Open port 9392 in firewalld
+    - name: Open port 9392 for OpenVAS web interface on the VM
+      ansible.builtin.firewalld:
+        port: 9392/tcp
+        permanent: yes
+        state: enabled
+      notify:
+        - restart firewalld
+
+  handlers:
+    - name: restart firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: restarted
+
